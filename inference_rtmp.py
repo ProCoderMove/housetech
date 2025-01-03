@@ -1,7 +1,7 @@
 import cv2
 import os
 import time
-from google.cloud import storage
+from google.cloud import storage,firestore
 import torch
 import numpy as np
 from PIL import Image
@@ -11,13 +11,14 @@ from scipy.ndimage import gaussian_filter
 # Configuration variables
 BUCKET_NAME = "vimarsh-a3197.appspot.com"  # Replace with your GCS bucket name
 IMAGE_CAPTURE_DIR = "./captured_images"  # Directory to save captured images
-SASNET_MODEL_PATH = "SASNet/models/SHHA.pth"  # Path to your SASNet model weights
+SASNET_MODEL_PATH = "SASNet/models/SHHB.pth"  # Path to your SASNet model weights
 RTMP_STREAM_URL = "rtmp://34.44.171.208/live"  # Replace with your RTMP stream URL
 CAPTURE_INTERVAL = 2  # Capture interval in seconds
 LOG_PARA = 1000
 GAUSSIAN_SIGMA = 1.0
 GAUSSIAN_KERNEL_SIZE = 5
 
+db=firestore.Client()
 # Initialize SASNet model
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -54,6 +55,22 @@ def perform_inference(image_path):
     pred_count = np.sum(pred_map_smoothed) / LOG_PARA
     return pred_count
 
+def generate_metadata(path,count):
+	metadata={ "gps_coordinates": "9.9252° N, 78.1198° E",
+        "head_count":int(count),
+        "id": "10473",
+        "image_url":str(path),
+        "pincode": "625001",
+        "status": "active",
+        "timestamps": "2024-09-05T09:40:00Z"}
+	return metadata
+def upload_metadata(metadata):
+	try:
+	   db.collection("HeadCount").add(metadata)
+	   print("metadata successfully uploaded to firebase ")
+	except Exception as e:
+	   print(f"Error uploading metadata to firebase:{e}")
+
 def main():
     # Ensure the image capture directory exists
     if not os.path.exists(IMAGE_CAPTURE_DIR):
@@ -86,7 +103,11 @@ def main():
             print(f"Performing inference on {image_path}...")
             pred_count = perform_inference(image_path)
             print(f"Inference result: Predicted count = {pred_count:.2f}")
-
+	   
+	   #generate the metadata of the captured image
+            metadata=generate_metadata(image_path,pred_count)
+	   #upload the metadata of the captured image
+            upload_metadata(metadata)
         frame_count += 1
 
     # Release the video capture object
